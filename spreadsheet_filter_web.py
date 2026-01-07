@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from io import BytesIO
 
 st.set_page_config(page_title="Universal Spreadsheet Filter", layout="wide")
 st.title("📊 Universal Spreadsheet Filter")
@@ -23,7 +24,6 @@ if uploaded_file:
 
         st.subheader("Filter Conditions")
 
-        # Add new filter
         if st.button("➕ Add Filter"):
             st.session_state.filters.append({
                 "column": df.columns[0],
@@ -84,7 +84,11 @@ if uploaded_file:
                         series = df[col]
 
                         if pd.api.types.is_numeric_dtype(series):
-                            val = float(val)
+                            try:
+                                val = float(val)
+                            except ValueError:
+                                st.error(f"Invalid numeric value for column '{col}'")
+                                st.stop()
 
                         if op == '==':
                             mask = series == val
@@ -99,7 +103,7 @@ if uploaded_file:
                         elif op == '<=':
                             mask = series <= val
                         elif op == 'contains':
-                            mask = series.astype(str).str.contains(str(val), case=False)
+                            mask = series.astype(str).str.contains(str(val), case=False, na=False)
                         else:
                             continue
 
@@ -107,23 +111,25 @@ if uploaded_file:
 
                     final_mask = masks[0]
                     for m in masks[1:]:
-                        final_mask = (
-                            final_mask & m if logic == "AND"
-                            else final_mask | m
-                        )
+                        final_mask = final_mask & m if logic == "AND" else final_mask | m
 
-                    filtered = df[final_mask]
+                    filtered = df[final_mask].copy()
 
                     for dt_col in filtered.select_dtypes(include=['datetime64[ns]']).columns:
                         filtered[dt_col] = filtered[dt_col].dt.date
 
                     st.success(f"Rows matched: {len(filtered)}")
-                    st.dataframe(filtered)
+                    st.dataframe(filtered, use_container_width=True)
+
+                    output = BytesIO()
+                    filtered.to_excel(output, index=False)
+                    output.seek(0)
 
                     st.download_button(
                         "⬇️ Download Filtered Excel",
-                        filtered.to_excel(index=False),
-                        file_name="filtered_output.xlsx"
+                        data=output,
+                        file_name="filtered_output.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
 
                 except Exception as e:
